@@ -47,6 +47,7 @@ class FlowGraph:
     edges: List[FlowEdge] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     layout: Dict[str, float] = field(default_factory=dict)
+    ref_total: float = 0.0            # if set, thickness scale is fixed to this total (comparable frames in time)
 
     def node(self, nid: str) -> FlowNode:
         for n in self.nodes:

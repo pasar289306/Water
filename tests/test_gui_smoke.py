@@ -121,8 +121,9 @@ def test_import_from_excel_and_sidebar_navigation(app, tmp_path):
         app.processEvents()
         assert w.nav[i].isChecked()
         assert w.page_title.text() == w.t(w._pages[i][1])
-    w.nav[w.tabs.indexOf(w.balance_tab)].click()
-    assert w.tabs.currentWidget() is w.balance_tab
+    w.nav[w.tabs.indexOf(w.flow_tab)].click()
+    assert w.tabs.currentWidget() is w.flow_tab
+    assert w.balance_tab.table.rowCount() == 5
     assert w.cost_tab.c_true.value.text() not in ("", "—")
     w.close()
 
@@ -406,4 +407,68 @@ def test_time_tab_excel_template_buttons(app, tmp_path):
     assert tt.import_xlsx(f) > 0                       # the prefilled values come back unchanged
     assert len(w.plant.series) == before
     assert "Excel" in tt.msg.text() or tt.msg.text()
+    w.close()
+
+
+def test_flow_page_time_view_and_balance(app):
+    from waterprofiler.sample import demo_with_history
+    w = _win("fa")
+    w._set_plant(demo_with_history("fa"), None)
+    w.tabs.setCurrentWidget(w.flow_tab)
+    app.processEvents()
+    ft = w.flow_tab
+    tb = ft.timebar
+    assert w.balance_tab is ft.balance and w.balance_tab.table.rowCount() == 5
+    assert "balance" not in [p[0] for p in w._pages]
+    import copy
+    snap = copy.deepcopy(w.plant.to_dict())
+    base_intake = ft.diagram.graph.nodes and sum(n.volume for n in ft.diagram.graph.nodes if n.kind == "source")
+    assert not ft.diagram.read_only and tb.period() is None
+
+    tb.mode.setCurrentIndex(1)
+    app.processEvents()
+    assert tb.period() is not None and len(tb.slices) >= 12
+    assert ft.diagram.read_only and not ft.table.isEnabled() and not ft.undo_btn.isEnabled()
+    first = sum(n.volume for n in ft.diagram.graph.nodes if n.kind == "source")
+    tb.slider.setValue(6)
+    app.processEvents()
+    assert tb.index == 6 and ft.balance.table.rowCount() == 5
+    assert sum(n.volume for n in ft.diagram.graph.nodes if n.kind == "source") != first
+    assert ft.diagram.graph.ref_total > 0
+    assert w.plant.to_dict() == snap       # the base model is never touched
+
+    tb.next_btn.click()
+    assert tb.index == 7
+    tb.speed.setCurrentIndex(2)
+    tb.toggle_play()
+    assert tb.is_playing()
+    tb._tick()
+    assert tb.index == 8
+    tb.toggle_play()
+    assert not tb.is_playing()
+    tb.slider.setValue(len(tb.slices) - 2)
+    tb.loop.setChecked(False)
+    tb.play()
+    assert tb.is_playing()
+    tb._tick()
+    assert tb.index == len(tb.slices) - 1 and not tb.is_playing()
+
+    tb.basis.setCurrentIndex(1)
+    app.processEvents()
+    assert ft.balance.unit == w.t("ft_unit_annual")
+    tb.mode.setCurrentIndex(0)
+    app.processEvents()
+    assert not ft.diagram.read_only and ft.table.isEnabled()
+    assert sum(n.volume for n in ft.diagram.graph.nodes if n.kind == "source") == pytest.approx(base_intake)
+    w.close()
+
+
+def test_flow_page_without_series_stays_in_base(app):
+    w = _win("en")
+    w.action_demo()
+    w.tabs.setCurrentWidget(w.flow_tab)
+    tb = w.flow_tab.timebar
+    assert not tb.has_data() and not tb.mode.isEnabled() and tb.period() is None
+    tb.play()
+    assert not tb.is_playing()
     w.close()

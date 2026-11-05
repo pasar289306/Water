@@ -15,7 +15,10 @@ from .. import flow as F
 from ..flow import FlowEdge, FlowGraph, FlowNode, build_flow
 from ..i18n import Translator
 from ..model import Plant, sync_transfers
-from .tabs import _Scroll, _message_label
+from .. import periodview as PV
+from ..analysis import analyse
+from .flow_time import FlowTimeBar
+from .tabs import BalancePanel, _Scroll, _message_label
 from .theme import COL
 from .widgets import DataTable, button, card
 
@@ -62,7 +65,7 @@ def paint_flow(p: QPainter, rect: QRectF, g: FlowGraph, rtl: bool, t: Translator
     def node_h(n: FlowNode, scale: float) -> float:
         return max(n.volume * scale, 44.0 if n.kind == "subsystem" else 16.0)
 
-    total_vol = max(sum(n.volume for n in c) for c in cols.values() if c) or 1.0
+    total_vol = max(max(sum(n.volume for n in c) for c in cols.values() if c), g.ref_total) or 1.0
     n_max = max(len(c) for c in cols.values())
     scale = max(1e-6, (height - gap * (n_max - 1)) / total_vol)
     for _ in range(10):
@@ -236,6 +239,8 @@ class FlowDiagram(QWidget):
         self._drag_y: Dict[str, float] = {}
         self._cursor = QPointF()
         self._connect_from: Optional[FlowNode] = None
+        self.read_only = False                    # time view: nothing can be changed from the picture
+        self.unit = "m³"
         self.setMinimumHeight(540)
         self.setMouseTracking(True)
 
@@ -305,7 +310,7 @@ class FlowDiagram(QWidget):
     def _edge_text(self, i: int) -> str:
         e = self.graph.edges[i]
         a, b = self.graph.node(e.src).name, self.graph.node(e.dst).name
-        return f"{a} → {b}: {_num(e.volume)} m³"
+        return f"{a} → {b}: {_num(e.volume)} {self.unit}"
 
     # ------------------------------------------------------------------ mouse
     def mouseMoveEvent(self, ev) -> None:  # noqa: N802 (Qt API)
@@ -318,19 +323,20 @@ class FlowDiagram(QWidget):
             self._drag_y = self._new_layout(self._press_node, pos.y())
             self.update()
             return
-        if self._press is not None and self._press_node is not None and (pos - self._press).manhattanLength() > 5:
+        if (not self.read_only and self._press is not None and self._press_node is not None
+                and (pos - self._press).manhattanLength() > 5):
             self._mode = "move"
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
         n = self._node_at(pos)
         hover_node = n.id if n is not None else None
-        if n is not None and self._on_port(n, pos):
+        if n is not None and self._on_port(n, pos) and not self.read_only:
             self.setCursor(Qt.CursorShape.CrossCursor)
             QToolTip.showText(ev.globalPosition().toPoint(), self.t("flow_port_tip"), self)
             hover_edge = -1
         elif n is not None:
             self.setCursor(Qt.CursorShape.PointingHandCursor if n.kind == "subsystem" else Qt.CursorShape.OpenHandCursor)
-            QToolTip.showText(ev.globalPosition().toPoint(), f"{n.name}: {_num(n.volume)} m³", self)
+            QToolTip.showText(ev.globalPosition().toPoint(), f"{n.name}: {_num(n.volume)} {self.unit}", self)
             hover_edge = -1
         else:
             hover_edge = self._edge_at(pos)
@@ -350,7 +356,7 @@ class FlowDiagram(QWidget):
         pos = ev.position()
         n = self._node_at(pos)
         self._press, self._press_node = pos, n
-        if n is not None and self._on_port(n, pos):
+        if n is not None and self._on_port(n, pos) and not self.read_only:
             self._mode, self._connect_from, self._cursor = "connect", n, pos
             self.setCursor(Qt.CursorShape.CrossCursor)
             self.update()
@@ -391,7 +397,7 @@ class FlowDiagram(QWidget):
         if n is not None:
             if n.kind == "subsystem":
                 menu.addAction(t("flow_open")).triggered.connect(lambda: self.node_clicked.emit(n.name))
-                for title, kind, names in ((t("flow_add_transfer"), "subsystem", [x for x in self.catalog["subs"] if x != n.name]),
+                for title, kind, names in () if self.read_only else ((t("flow_add_transfer"), "subsystem", [x for x in self.catalog["subs"] if x != n.name]),
                                            (t("flow_add_intake"), "source", self.catalog["sources"]),
                                            (t("flow_add_discharge"), "outlet", self.catalog["outlets"])):
                     if names:
@@ -399,7 +405,7 @@ class FlowDiagram(QWidget):
                         for name in names:
                             act = sub.addAction(name)
                             act.triggered.connect(lambda _=False, k=kind, nm=name: self.add_flow_requested.emit(n.id, f"{k}:{nm}"))
-            elif n.kind in ("source", "outlet"):
+            elif n.kind in ("source", "outlet") and not self.read_only:
                 names = [x for x in self.catalog["subs"]]
                 if names:
                     sub = menu.addMenu(t("flow_add_to") if n.kind == "source" else t("flow_add_from"))
@@ -407,7 +413,7 @@ class FlowDiagram(QWidget):
                         sub.addAction(name).triggered.connect(
                             lambda _=False, nm=name: self.add_flow_requested.emit(n.id, f"subsystem:{nm}"))
         else:
-            i = self._edge_at(pos)
+            i = -1 if self.read_only else self._edge_at(pos)
             if i >= 0:
                 e = self.graph.edges[i]
                 if e.editable:
@@ -420,7 +426,7 @@ class FlowDiagram(QWidget):
             menu.exec(ev.globalPos())
 
     def mouseDoubleClickEvent(self, ev) -> None:  # noqa: N802 (Qt API)
-        if self._node_at(ev.position()) is None:
+        if not self.read_only and self._node_at(ev.position()) is None:
             i = self._edge_at(ev.position())
             if i >= 0 and self.graph.edges[i].editable:
                 self.edit_requested.emit(i)
@@ -435,11 +441,14 @@ class FlowTab(_Scroll):
     subsystem_requested = Signal(str)
     links_changed = Signal()
     plant_edited = Signal()
+    series_requested = Signal()
 
     def __init__(self, t: Translator):
         super().__init__()
         self.t = t
         self.plant: Optional[Plant] = None
+        self._frames: Dict[tuple, tuple] = {}
+        self._frame_key: Optional[tuple] = None
         self._analysis: Optional[Analysis] = None
         self._loading = False
         self.msg = _message_label()
@@ -467,13 +476,24 @@ class FlowTab(_Scroll):
         self.undo_btn = button(t("flow_undo"), "", self.undo)
         self.undo_btn.setEnabled(False)
         reset = button(t("flow_reset"), "", self._reset_layout)
+        self._reset_btn = reset
         bar = QWidget()
         bl = QHBoxLayout(bar)
         bl.setContentsMargins(0, 0, 0, 0)
         for b_ in (self.undo_btn, reset, save):
             bl.addWidget(b_)
         bl.addStretch(1)
-        self.lay.addWidget(card(t("tab_flow"), self.diagram, legend, hint, bar))
+        self.view_label = QLabel("")
+        self.view_label.setStyleSheet("font-weight:700;")
+        self.hint = hint
+        self.bar = bar
+        self.lay.addWidget(card(t("tab_flow"), self.view_label, self.diagram, legend, hint, bar))
+        self.timebar = FlowTimeBar(t)
+        self.timebar.changed.connect(self._redraw)
+        self.timebar.goto_series.connect(self.series_requested)
+        self.lay.addWidget(card(t("ft_title"), self.timebar, note=t("ft_note")))
+        self.balance = BalancePanel(t)
+        self.lay.addWidget(self.balance)
         sc = QShortcut(QKeySequence.StandardKey.Undo, self)
         sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         sc.activated.connect(self.undo)
@@ -491,7 +511,8 @@ class FlowTab(_Scroll):
         return [s.name for s in (self.plant.subsystems if self.plant else [])]
 
     def refresh(self, plant: Plant, a: Optional[Analysis]) -> None:
-        if plant is not self._owner:
+        fresh = plant is not self._owner
+        if fresh:
             self._undo.clear()
             self._owner = plant
             self.undo_btn.setEnabled(False)
@@ -504,22 +525,106 @@ class FlowTab(_Scroll):
         self._loading = True
         self.table.set_rows([[x.src, x.dst, x.volume] for x in plant.links])
         self._loading = False
+        self.timebar.set_plant(plant, fresh)
         self._redraw()
 
-    def _redraw(self) -> None:
+    def set_analysis(self, a: Optional[Analysis]) -> None:
+        """Base-model analysis changed (an edit elsewhere): show it, or recompute the open period."""
+        self._analysis = a
+        if self.plant is not None:
+            self._redraw()
+
+    update_analysis = set_analysis
+
+    def _redraw(self, *_a) -> None:
+        period = self.timebar.period() if self.plant is not None else None
+        editable = period is None
+        self.diagram.read_only = not editable
+        self.table.setEnabled(editable)
+        self.bar.setEnabled(True)
+        for w in (self.undo_btn, self._reset_btn):
+            w.setEnabled(editable and (w is not self.undo_btn or bool(self._undo)))
         if self._analysis is None or not self.plant or not self.plant.subsystems:
             self.msg.setText(self.t("no_data"))
             self.diagram.set_graph(FlowGraph())
+            self.view_label.setText("")
             return
         self.msg.setText("")
-        self.diagram.set_graph(build_flow(self._analysis, labels_for(self.t)))
+        if period is None:
+            self.diagram.unit = "m³"
+            self.view_label.setText(self.t("ft_view_base"))
+            self.balance.set_unit("m³")
+            self.diagram.set_graph(build_flow(self._analysis, labels_for(self.t)))
+            self.balance.refresh(self._analysis)
+            self.timebar.set_info(self.t("ft_info_base") if self.timebar.has_data() else self.t("ft_no_series"))
+            self._strip()
+            return
+        frame = self._frame(self.timebar.index)
+        self._strip()
+        if frame is None:
+            return
+        g, a, info = frame
+        annual = self.timebar.basis.currentData() == "annual"
+        unit = self.t("ft_unit_annual") if annual else self.t("ft_unit_period")
+        self.diagram.unit = unit
+        self.view_label.setText(self.t("ft_view_period", label=period.label, start=str(period.start), end=str(period.end), days=info.days))
+        self.balance.set_unit(unit)
+        if info.empty or a is None:
+            self.diagram.set_graph(FlowGraph())
+            self.balance.show_error(self.t("ft_empty"))
+            self.timebar.set_info(self.t("ft_empty"))
+            return
+        self.diagram.set_graph(g)
+        self.balance.refresh(a)
+        self.timebar.set_info(self.t("ft_info", applied=info.applied, total=info.total_vars, est=info.estimated, days=info.days))
 
-    def update_analysis(self, a: Optional[Analysis]) -> None:
-        self._analysis = a
-        self._redraw()
+    def _key(self) -> tuple:
+        tb = self.timebar
+        return (hash(repr(self.plant.to_dict())), tb.cal_combo.currentData(), tb.step.currentData(),
+                str(tb.start.date()), str(tb.end.date()), tb.basis.currentData(), tb.fill.currentData(), self.t.lang)
+
+    def _frame(self, i: int):
+        """(graph, analysis, info) of slice ``i``; all slices are computed once so the picture scale is shared."""
+        key = self._key()
+        if key != self._frame_key:
+            self._frames = {}
+            self._frame_key = key
+            tb = self.timebar
+            labels = labels_for(self.t)
+            for j, s in enumerate(tb.slices):
+                pp, info = PV.period_plant(self.plant, s.start, s.end, tb.fill.currentData(), tb.basis.currentData())
+                a = g = None
+                if not info.empty:
+                    try:
+                        a = analyse(pp)
+                        g = build_flow(a, labels)
+                    except Exception:  # noqa: BLE001 - one bad period must not stop the animation
+                        a = g = None
+                        info.empty = True
+                self._frames[j] = (g, a, info)
+            ref = 0.0
+            for g, _a2, _i in self._frames.values():
+                if g is not None:
+                    for col in {n.column for n in g.nodes}:
+                        ref = max(ref, sum(n.volume for n in g.nodes if n.column == col))
+            for g, _a2, _i in self._frames.values():
+                if g is not None:
+                    g.ref_total = ref
+        return self._frames.get(i)
+
+    def _strip(self) -> None:
+        tb = self.timebar
+        vals = []
+        if tb.mode.currentData() == "period" and self.plant is not None:
+            self._frame(tb.index)
+            for j in range(len(tb.slices)):
+                f = self._frames.get(j)
+                vals.append(None if f is None or f[1] is None else f[1].balance.sum_intake)
+        tb.set_strip(vals)
 
     def show_error(self, text: str) -> None:
         self.msg.setText(text)
+        self.balance.show_error(text)
 
     def _links_edited(self) -> None:
         if self._loading or self.plant is None:

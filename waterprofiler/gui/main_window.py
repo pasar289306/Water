@@ -33,7 +33,7 @@ from .indicators_tab import IndicatorsTab
 from .site_tab import SiteTab
 from .timeseries_tab import TimeTab
 from .flow_tab import FlowTab, labels_for, render_image
-from .tabs import BalanceTab, CostTab, ReconcileTab, SavingsTab
+from .tabs import CostTab, ReconcileTab, SavingsTab
 from .theme import apply_theme, brand_icon
 from .widgets import NavButton, button, card
 
@@ -85,7 +85,8 @@ class MainWindow(QMainWindow):
         self.flow_tab.subsystem_requested.connect(self._open_subsystem)
         self.flow_tab.links_changed.connect(self._links_changed)
         self.flow_tab.plant_edited.connect(self._flow_edited)
-        self.balance_tab = BalanceTab(t)
+        self.flow_tab.series_requested.connect(lambda: self.tabs.setCurrentWidget(self.ts_tab))
+        self.balance_tab = self.flow_tab.balance      # the balance lives on the flow page
         self.cost_tab = CostTab(t)
         self.savings_tab = SavingsTab(t)
         self.measures_tab = MeasuresTab(t)
@@ -129,7 +130,6 @@ class MainWindow(QMainWindow):
             ("subsystems", "tab_subsystems", "desc_subsystems", subs),
             ("ts", "tab_ts", "desc_ts", self.ts_tab),
             ("flow", "tab_flow", "desc_flow", self.flow_tab),
-            ("balance", "tab_balance", "desc_balance", self.balance_tab),
             ("cost", "tab_cost", "desc_cost", self.cost_tab),
             ("savings", "tab_savings", "desc_savings", self.savings_tab),
             ("measures", "tab_measures", "desc_measures", self.measures_tab),
@@ -334,7 +334,7 @@ class MainWindow(QMainWindow):
         self._sync_nav(idx)
         self.collect()
         w = self.tabs.widget(idx)
-        if w is self.balance_tab or w is self.cost_tab:
+        if w is self.cost_tab:
             self._run_analysis()
         elif w is self.flow_tab:
             a = self._run_analysis()
@@ -403,17 +403,15 @@ class MainWindow(QMainWindow):
             a = self._analyse()
         except KeyError as e:
             msg = t("missing_ref", name=str(e).strip("'\""))
-            self.balance_tab.show_error(msg)
             self.cost_tab.show_error(msg)
             self.flow_tab.show_error(msg)
             return None
         except Exception as e:  # noqa: BLE001 - shown to the user, never crash
             msg = f"{t('analysis_error')}: {localize(str(e), t.lang)}"
-            self.balance_tab.show_error(msg)
             self.cost_tab.show_error(msg)
             self.flow_tab.show_error(msg)
             return None
-        self.balance_tab.refresh(a)
+        self.flow_tab.set_analysis(a)
         self.cost_tab.refresh(a)
         return a
 

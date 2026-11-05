@@ -143,3 +143,20 @@ unaccounted loss, Q production.
 Per subsystem: shares of intake and cost, cost per m³, loss, consumptive / discharge / transfer / recirculation
 shares, intensity (with production entered), cycles of concentration `bc/mc`, blowdown / make-up, litres per person
 per day. Monthly indicators (peaking factors, trends, seasonality) need monthly data and are not included yet.
+
+## Flow and balance in time (`waterprofiler/periodview.py`, v0.8)
+
+The flow page shows the base (annual) model or one period of the time series. The base model is never changed:
+the period view works on a copy.
+
+1. Every flow variable with data in the period (source, outlet, subsystem intake / discharge / evaporation / product /
+   recirculation) replaces its value; series values are annualised (sums × 365 / days) as in the time-series plan.
+2. A source or outlet with data but without subsystem-level data is spread over the subsystems that use it, in
+   proportion to their share in the base model.
+3. Flows without data of their own follow the subsystem's intake of the period: x_period = x_base · (intake_period / intake_base)
+   (`fill = prorate`), or keep the base value (`fill = base`). The number of such estimated values is shown.
+4. Volume scale: "in the period" multiplies all volumes by days / 365; "annualised rate" keeps m3/year.
+
+The balance table, totals and chart of the page are the ordinary water balance (section 2) of that adjusted copy.
+During auto-play the thickness scale of the diagram is fixed to the largest column total of all periods, so frames
+are visually comparable.

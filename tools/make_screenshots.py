@@ -100,9 +100,9 @@ def main(out: str) -> int:
         dlg.close()
 
     def balance_ok():
-        go(win.balance_tab)
+        go(win.flow_tab)
         shot(win, "05_balance")
-        shot(win.balance_tab.widget(), "05_balance_full")
+        shot(win.flow_tab.widget(), "05_balance_full")
 
     def cost():
         go(win.cost_tab)
@@ -129,9 +129,19 @@ def main(out: str) -> int:
 
     def leak_balance():
         win._set_plant(leaky_plant("fa"), None)
-        go(win.balance_tab)
+        go(win.flow_tab)
         shot(win, "08_balance_leak")
-        shot(win.balance_tab.widget(), "08_balance_leak_full")
+        shot(win.flow_tab.widget(), "08_balance_leak_full")
+
+    def flow_time():
+        from waterprofiler.sample import demo_with_history
+        win._set_plant(demo_with_history("fa"), None)
+        go(win.flow_tab)
+        tb = win.flow_tab.timebar
+        tb.mode.setCurrentIndex(1)
+        tb.slider.setValue(min(5, tb.slider.maximum()))
+        shot(win, "19_flow_time")
+        shot(win.flow_tab.widget(), "19_flow_time_full")
 
     def measures():
         go(win.measures_tab)
@@ -190,7 +200,7 @@ def main(out: str) -> int:
         go(win.cost_tab)
         shot(win, "10_english_cost")
 
-    for fn in (blank, plant_tab, file_menu, lang_menu, subsystems, estimate_dialog, balance_ok, flow, cost, measures, plan, econ, site_and_series, indicators,
+    for fn in (blank, plant_tab, file_menu, lang_menu, subsystems, estimate_dialog, balance_ok, flow, flow_time, cost, measures, plan, econ, site_and_series, indicators,
                savings, leak_balance, reconcile, about, english):
         step(fn)
 

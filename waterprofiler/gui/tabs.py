@@ -135,10 +135,16 @@ class _Scroll(QScrollArea):
         self.lay.setSpacing(16)
 
 
-class BalanceTab(_Scroll):
+class BalancePanel(QWidget):
+    """Water balance cards, tables and chart. Lives on the flow page; ``set_unit`` switches m3/year <-> period."""
+
     def __init__(self, t: Translator):
         super().__init__()
         self.t = t
+        self.unit = "m³"
+        self.lay = QVBoxLayout(self)
+        self.lay.setContentsMargins(0, 0, 0, 0)
+        self.lay.setSpacing(14)
         self.msg = _message_label()
         self.lay.addWidget(self.msg)
         self.c_intake = StatCard(t("sum_intake") + " (m³)", COL["blue"])
@@ -159,7 +165,14 @@ class BalanceTab(_Scroll):
         self.lay.addWidget(card("", self.chart))
         self.warn = _warn_label()
         self.lay.addWidget(self.warn)
-        self.lay.addStretch(1)
+
+    def set_unit(self, unit: str) -> None:
+        """Unit shown in card titles and in the totals list (e.g. "m³", "m³ in the period")."""
+        t = self.t
+        self.unit = unit
+        for c, key in ((self.c_intake, "sum_intake"), (self.c_disch, "sum_discharge"),
+                       (self.c_cons, "series_consumptive"), (self.c_loss, "unknown_loss")):
+            c.title.setText(f"{t(key)} ({unit})")
 
     def show_error(self, text: str) -> None:
         self.msg.setText(text)
@@ -167,6 +180,9 @@ class BalanceTab(_Scroll):
         self.chart.set_data("", [], [])
         for c in (self.c_intake, self.c_disch, self.c_cons, self.c_loss):
             c.set("—")
+        while self.totals.rowCount():
+            self.totals.removeRow(0)
+        _set_visible_text(self.warn, "")
 
     def refresh(self, a: Analysis) -> None:
         t, b = self.t, a.balance
@@ -201,7 +217,7 @@ class BalanceTab(_Scroll):
             lbl = QLabel(ltr(val))
             lbl.setAlignment(RIGHT)
             lbl.setStyleSheet("font-weight:600;")
-            self.totals.addRow(lab + " (m³)" if "%" not in val else lab, lbl)
+            self.totals.addRow(f"{lab} ({self.unit})" if "%" not in val else lab, lbl)
 
         names = [s.name for s in b.subsystems]
         sub = {s.name: s for s in a.plant.subsystems}
@@ -211,6 +227,9 @@ class BalanceTab(_Scroll):
              (t("series_consumptive"), [sub[n].evaporation + sub[n].product for n in names]),
              (t("series_discharge"), [sub[n].total_discharge for n in names])])
         _set_visible_text(self.warn, "\n".join("⚠ " + w for w in localize_all(b.warnings, t.lang)))
+
+
+BalanceTab = BalancePanel          # old name
 
 
 class CostTab(_Scroll):
