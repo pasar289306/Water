@@ -464,8 +464,9 @@ def test_flow_page_time_view_and_balance(app):
 
 
 def test_flow_page_without_series_stays_in_base(app):
+    from waterprofiler.sample import demo_plant
     w = _win("en")
-    w.action_demo()
+    w._set_plant(demo_plant("en"), None)
     w.tabs.setCurrentWidget(w.flow_tab)
     tb = w.flow_tab.timebar
     assert not tb.has_data() and not tb.mode.isEnabled() and tb.period() is None
