@@ -234,7 +234,8 @@ class Plant:
     profile: Profile = field(default_factory=Profile)
     site: Site = field(default_factory=Site)
     series: Dict[str, List[Point]] = field(default_factory=dict)    # time series by variable key
-    window: Dict[str, str] = field(default_factory=dict)            # analysis window: {"start": iso, "end": iso}
+    window: Dict[str, str] = field(default_factory=dict)            # reference window: {"start": iso, "end": iso}
+    ts_view: Dict[str, str] = field(default_factory=dict)           # time-series view: step, start, end, chart (bar | line)
 
     def source(self, name: str) -> Source:
         for s in self.sources:
@@ -282,6 +283,7 @@ class Plant:
             site=_site_from(d.get("site", {})),
             series={str(k): [Point(**p) for p in v] for k, v in d.get("series", {}).items()},
             window={str(k): str(v) for k, v in d.get("window", {}).items()},
+            ts_view={str(k): str(v) for k, v in d.get("ts_view", {}).items()},
         )
         # older files kept the working days on the site page; there is now one field (the profile's)
         if plant.site.operating_days and not plant.profile.working_days:

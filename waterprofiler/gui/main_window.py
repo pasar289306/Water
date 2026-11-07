@@ -32,6 +32,7 @@ from .measures_tabs import MeasuresTab, PlanTab
 from .econ_tab import EconTab
 from .indicators_tab import IndicatorsTab
 from .industrial_tab import IndustrialTab
+from .series_view import TimeContext
 from .timeseries_tab import TimeTab
 from .flow_tab import FlowTab, labels_for, render_image
 from .tabs import CostTab, ReconcileTab, SavingsTab
@@ -79,7 +80,8 @@ class MainWindow(QMainWindow):
         self._build_menu()
 
         self.tabs = PageStack()
-        self.industrial_tab = IndustrialTab(t)
+        self.time_ctx = TimeContext(t.lang)
+        self.industrial_tab = IndustrialTab(t, self.time_ctx)
         self.plant_panel = self.industrial_tab.plant_panel
         self.site_tab = self.industrial_tab.site_tab
         self.sub_editor = SubsystemEditor(t)

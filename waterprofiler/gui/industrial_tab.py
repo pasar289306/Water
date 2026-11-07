@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 from ..i18n import Translator
 from ..model import Plant
 from .editor import PlantPanel
+from .series_view import TimeContext, TimeSettings
 from .site_tab import SiteTab
 
 
@@ -16,13 +17,16 @@ class IndustrialTab(QWidget):
 
     changed = Signal()
 
-    def __init__(self, t: Translator):
+    def __init__(self, t: Translator, ctx: TimeContext | None = None):
         super().__init__()
         self.t = t
+        self.ctx = ctx or TimeContext(t.lang)
+        self.time_settings = TimeSettings(t, self.ctx)
         self.plant_panel = PlantPanel(t)
         self.site_tab = SiteTab(t)
         self.sections = QTabWidget()
         self.sections.setDocumentMode(True)
+        self.sections.addTab(self.time_settings, t("ind_sec_time"))
         self.sections.addTab(self.plant_panel, t("ind_sec_plant"))
         self.sections.addTab(self.site_tab, t("ind_sec_site"))
         lay = QVBoxLayout(self)
@@ -35,6 +39,7 @@ class IndustrialTab(QWidget):
 
     def load(self, plant: Plant) -> None:
         self.plant = plant
+        self.ctx.set_plant(plant, fresh=True)
         self.plant_panel.load(plant)
         self.site_tab.load(plant)
 
@@ -50,11 +55,16 @@ class IndustrialTab(QWidget):
 
     def _section_changed(self, _i: int) -> None:
         if self.plant is not None:
+            if self.sections.currentWidget() is self.time_settings:
+                self.time_settings.refresh(self.plant)
             self.plant_panel.store(self.plant)
             self.site_tab.refresh(self.plant)
 
     def show_plant(self) -> None:
         self.sections.setCurrentWidget(self.plant_panel)
+
+    def show_time(self) -> None:
+        self.sections.setCurrentWidget(self.time_settings)
 
     def show_site(self) -> None:
         self.sections.setCurrentWidget(self.site_tab)

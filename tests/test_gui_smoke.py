@@ -490,7 +490,7 @@ def test_industrial_page_merges_plant_and_site(app):
     assert w.t(w._pages[0][1]) == "مجتمع صنعتی"
     w.tabs.setCurrentWidget(w.industrial_tab)
     it = w.industrial_tab
-    assert it.sections.count() == 2 and w.plant_panel is it.plant_panel and w.site_tab is it.site_tab
+    assert it.sections.count() == 3 and w.plant_panel is it.plant_panel and w.site_tab is it.site_tab
     w.plant_panel.name.setText("مجتمع آزمون")
     it.show_site()
     app.processEvents()
@@ -540,3 +540,31 @@ def test_estimator_asks_staff_once(app):
     assert d.fields["employees"].value() == 250.0 and not d.fields["employees"].isEnabled()
     assert d.fields["lpd"].isEnabled()
     w.close()
+
+
+def test_time_settings_and_series_panel(app):
+    from datetime import date
+    from waterprofiler.gui.series_view import SeriesGrid, SeriesPanel
+    from waterprofiler.sample import demo_with_history
+    w = _win("fa")
+    w._set_plant(demo_with_history("fa"), None)
+    it, ctx = w.industrial_tab, w.time_ctx
+    assert it.sections.widget(0) is it.time_settings and ctx.plant is w.plant and ctx.slices
+    # chart style is shared and saved in the project
+    ctx.set_chart_mode("line")
+    assert w.plant.ts_view["chart"] == "line" and it.time_settings.mode_box.currentData() == "line"
+    # a panel under a variable shows the table and chart and writes into the single series store
+    key = next(k for k, v in w.plant.series.items() if v)
+    panel = SeriesPanel(w.t, ctx, lambda: [key])
+    panel.toggle.setChecked(True)
+    g = panel.grid
+    assert isinstance(g, SeriesGrid) and g.tb.rowCount() == len(ctx.slices) + 1 and g.chart.mode == "line"
+    assert g.set_cell(0, 2, "123", ask=False)
+    s = ctx.slices[0]
+    from waterprofiler import timeseries as TS
+    assert TS.value_in(w.plant.series[key], s.start, s.end, g.cols[0].agg)[0] is not None
+    # changing the range rebuilds the rows
+    ctx.set_view(step="year")
+    assert g.tb.rowCount() == len(ctx.slices) + 1
+    it.show_time()
+    app.processEvents()

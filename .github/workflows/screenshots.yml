@@ -2,7 +2,7 @@ name: Documentation screenshots
 
 on:
   push:
-    branches: [docs-screenshots, cepwater, ui-polish, measures-db, flow-diagram, flow-edit, econ, indicators, ts-water, flow-time, industrial-merge, single-entry]
+    branches: [docs-screenshots, cepwater, ui-polish, measures-db, flow-diagram, flow-edit, econ, indicators, ts-water, flow-time, industrial-merge, single-entry, series-core]
   workflow_dispatch:
 
 permissions:
